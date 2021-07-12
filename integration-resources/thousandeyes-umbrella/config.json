@@ -1,0 +1,7 @@
+{
+    "umb_enf_api_key": "<your_umb_enf_api_key>",
+    "te_username": "<your_te_username>",
+    "te_api_token": "<your_te_api_token>",
+    "webex_access_token": "<your_webex_access_token>",
+    "webex_room_id": "<your_webex_room_id>"
+}
