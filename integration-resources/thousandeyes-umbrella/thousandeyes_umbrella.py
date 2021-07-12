@@ -112,7 +112,7 @@ def send_webex_teams_message(domain,test_results,webex_access_token,webex_room_i
 
 if __name__ == "__main__":
 
-    # [STEP 0] Load open_config()
+    # [STEP 0] Load config.json file
     open_config()
 
     #TODO: [STEP 1] SCRIPT TRIGGER AND PARSE OBSERVABLES (e.g. security incident)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
 
     create_thousandeyes_test(config_file['te_username'], config_file['te_api_token'], test_url, test_name, aid=None)
 
-    # [STEP 4] Pull for ThousandEyes test result to confirm policy verification
+    #TODO: [STEP 4] Pull for ThousandEyes test result to confirm policy verification
     # api call for test results and then set boolean if not confirmed
     test_results = json.loads(response.text)
     enforced_confirmed_bool = False
