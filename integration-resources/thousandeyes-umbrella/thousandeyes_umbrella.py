@@ -104,7 +104,7 @@ def create_thousandeyes_test(username, api_token, test_url, test_name, aid=None)
         print("Failed to create the test:")
         pprint.pprint(response_json)
 
-def send_webex_teams_message(domain,test_results,webex_access_token,webex_room_id)
+def send_webex_teams_message(domain,test_results,webex_access_token,webex_room_id):
     teams = webexteamssdk.WebexTeamsAPI(webex_access_token)
     webex_text =f"🚨🚨🚨\n\n---\n**Policy enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\n🚨🚨🚨"
     message = teams.messages.create(webex_room_id, markdown=webex_text)
