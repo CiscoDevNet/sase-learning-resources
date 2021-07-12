@@ -106,7 +106,7 @@ def create_thousandeyes_test(username, api_token, test_url, test_name, aid=None)
 
 def send_webex_teams_message(domain,test_results,webex_access_token,webex_room_id):
     teams = webexteamssdk.WebexTeamsAPI(webex_access_token)
-    webex_text =f"🚨🚨🚨\n\n---\n**Policy enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\n🚨🚨🚨"
+    webex_text =f"🚨🚨🚨\n\n---\n**Policy NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\n🚨🚨🚨"
     message = teams.messages.create(webex_room_id, markdown=webex_text)
 
 
