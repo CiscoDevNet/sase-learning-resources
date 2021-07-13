@@ -136,7 +136,10 @@ def main(
 
     print("Agent                                 Time        URL Reachable")
     for result in results:
-        reachable = "Yes (HTTP %s)" % result["responseCode"]
+        if result["responseCode"] <= 200 and result["responseCode"] < 300:
+            reachable = "Yes (HTTP %s)" % result["responseCode"]
+        else:
+            reachable = "No (HTTP %s)" % result["responseCode"]
         if result["errorType"] != "None":
             reachable = result["errorType"]
         print("%s  %s  %s" % (result["agentId"], result["roundId"], reachable))
