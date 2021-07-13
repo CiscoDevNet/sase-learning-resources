@@ -3,5 +3,7 @@
     "te_username": "<your_te_username>",
     "te_api_token": "<your_te_api_token>",
     "webex_access_token": "<your_webex_access_token>",
-    "webex_room_id": "<your_webex_room_id>"
+    "webex_room_id": "<your_webex_room_id>",
+    "no_of_reruns": 3,
+    "time_between_reruns": 5
 }

@@ -59,7 +59,7 @@ def post_umbrella_events(domain, api_key):
     response = requests.post(url, data=json.dumps(payload), headers=headers)
     response.raise_for_status()
 
-def create_thousandeyes_test(username, api_token, test_url, test_name, aid=None):
+def create_thousandeyes_instant_test(username, api_token, test_url, test_name, no_of_reruns, time_between_reruns, aid=None):
     api = teapi.ThousandEyesApi(username, api_token, log_level=50)
     # Get all Endpoint agent labels and find the ID of the 'All Agents' label.
     response_json = api.get("groups/endpoint-agents", aid=aid)
@@ -68,7 +68,7 @@ def create_thousandeyes_test(username, api_token, test_url, test_name, aid=None)
         if label["name"] == "All agents":
             label_id = label["groupId"]
 
-    # Create an Entpoind agent scheduled HTTP test against the target URL
+    # Create an Entpoind agent Instant HTTP test against the target URL
     test_payload = {
         "testName": test_name,
         "url": test_url,
@@ -80,29 +80,78 @@ def create_thousandeyes_test(username, api_token, test_url, test_name, aid=None)
         "verifyCertHostname": 1,
     }
     try:
-        response_json = api.post(
-            "endpoint-tests/http-server/new", test_payload, aid=aid
-        )
+        response_json = api.post("endpoint-instant/http-server", test_payload, aid=aid)
+        if (
+            "endpointTest" in response_json
+            and "testName" in response_json["endpointTest"][0]
+        ):
+            test_id = response_json["endpointTest"][0]["testId"]
+            print(f"Endpoint agent instant test {response_json["endpointTest"][0]["testName"]} with ID {test_id} created.")
+        else:
+            print("Failed to create the test:")
+            pprint.pprint(response_json)
+    # error handling
     except teapi.HTTPResponseError as e:
         if e.status:
-            print("HTTP Error %s (%s)" % (e.status, e.request_url))
+            print(f"HTTP Error {e.status} ({e.request_url})"
         if e.request_body:
-            print("Request Body:\n%s" % e.request_body)
+            print(f"Request Body:\n {e.request_body}")
         if e.response_body:
-            print("Response Body:\n%s" % e.response_body)
+            print(f"Response Body:\n {e.response_body}")
         return
 
-    if (
-        "endpointTest" in response_json
-        and "testName" in response_json["endpointTest"][0]
-    ):
-        print(
-            "Endpoint agent scheduled test '%s' created."
-            % response_json["endpointTest"][0]["testName"]
-        )
-    else:
-        print("Failed to create the test:")
-        pprint.pprint(response_json)
+    # rerun test for as many times as set in config.json file
+    reruns_to_go = no_of_reruns - 1
+    while reruns_to_go > 0:
+        print(f"Waiting {time_between_reruns}s before a rerun ({reruns_to_go} reruns to go)")
+        time.sleep(time_between_reruns)
+        try:
+            print("Running test again.")
+            response_json = api.post(f"endpoint-instant/{test_id}/rerun", test_payload, aid=aid)
+        except teapi.HTTPResponseError as e:
+            if e.status:
+                print(f"HTTP Error {e.status} ({e.request_url})")
+            if e.request_body:
+                print(f"Request Body:\n{e.request_body}")
+            if e.response_body:
+                print(f"Response Body:\n{e.response_body}")
+            return
+        reruns_to_go -= 1
+
+    # briefly sleeping before retrieving test results (configurable, currently set to 2 minutes)
+    print("Waiting 120s to collect test data.")
+    time.sleep(120)
+
+    # Get all test results
+    results = []
+    while True:
+        # set time window to retrieve test results from
+        collect_time = no_of_reruns * time_between_reruns
+        response_json = api.get(f"endpoint-data/tests/web/http-server/{test_id}", get_options={f"window": "{collect_time}s"}, aid=aid)
+        if (
+            "endpointWeb" in response_json
+            and "httpServer" in response_json["endpointWeb"]
+            and len(response_json["endpointWeb"]["httpServer"]) > 0
+        ):
+            results += response_json["endpointWeb"]["httpServer"]
+            break
+
+        # TODO: Missing pagination handling. If there are too many results, you
+        # need to do paginated queries.
+
+        # briefly sleeping before retrieving test results again (configurable, currently set to 30 seconds)
+        print("No results yet. Waiting 30s to collect test data.")
+        time.sleep(30)
+
+    print("Agent                                 Time        URL Reachable")
+    for result in results:
+        domain_reachable = True 
+        if result["errorType"] != "None":
+            domain_reachable = False # result["errorType"]
+        print(f"{result["agentId"]} {result["roundId"]} Yes: HTTP[{result["responseCode"]}]")
+    
+    #return boolean to check if domain is reachable.
+    return domain_reachable
 
 def send_webex_teams_message(domain,test_results,webex_access_token,webex_room_id):
     teams = webexteamssdk.WebexTeamsAPI(webex_access_token)
@@ -116,27 +165,23 @@ if __name__ == "__main__":
     open_config()
 
     #TODO: [STEP 1] SCRIPT TRIGGER AND PARSE OBSERVABLES (e.g. security incident)
-    # trigger
+    # right now hardcoded
     domain = "internetbadguys.com"
 
     # [STEP 2] Block domain using the Umbrella Enforcement API
     umb_enf_api_key = config_file['umb_enf_api_key']
     post_umbrella_events(domain, umb_enf_api_key)
 
-    # [STEP 3] Create instant test with ThousandEyes (NOTE: using endpoint tests now for testing)
+    # [STEP 3] Create and retrieve results from instant test with ThousandEyes (NOTE: using endpoint tests now for testing)
     test_url = domain
     test_name = f"Umbrella Policy Enforecement Verifaction for domain: {domain}"
+    no_of_reruns = config_file['no_of_reruns']
+    time_between_reruns = config_file['time_between_reruns']
 
-    create_thousandeyes_test(config_file['te_username'], config_file['te_api_token'], test_url, test_name, aid=None)
+    domain_reachable = create_thousandeyes_test(config_file['te_username'], config_file['te_api_token'], test_url, test_name, no_of_reruns, time_between_reruns, aid=None)
 
-    #TODO: [STEP 4] Pull for ThousandEyes test result to confirm policy verification
-    # api call for test results and then set boolean if not confirmed
-    test_results = json.loads(response.text)
-    enforced_confirmed_bool = False
-
-
-    # [STEP 5] Send Webex Teams notification to notify to admins that policy is NOT enforced (otherwise causing noise)
-    if enforced_confirmed_bool == False:
-        send_webex_teams_message(domain,test_results,config_file['webex_access_token'],config_file['webex_room_id'])
-    else:
+    # [STEP 4] Send Webex Teams notification to notify to admins that policy is NOT enforced (otherwise causing noise)
+    if domain_reachable == False:
         print(f"Policy enforced for domain: {domain}!")
+    else:
+        send_webex_teams_message(domain,test_results,config_file['webex_access_token'],config_file['webex_room_id'])
