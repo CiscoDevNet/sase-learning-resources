@@ -189,7 +189,7 @@ if __name__ == "__main__":
 
     domain_reachable,test_results = create_thousandeyes_instant_test(config_file['te_username'], config_file['te_api_token'], test_url, test_name, config_file['no_of_reruns'], config_file['time_between_reruns'], aid=None)
 
-    # [STEP 4] Send Webex Teams notification to notify to admins that policy is NOT enforced (otherwise causing noise)
+    # [STEP 4] Send Webex Teams notification to notify to admins that policy is/isn't enforced
     if domain_reachable == False:
         print(f"Policy enforced for domain: {domain}!\n")
         webex_text = f"\n\n---\n**Policy is enforced for domain: {domain}!**\nStatus code: *{test_results}*.\n\Verified by Cisco ThousandEyes!\n\n---\n"
