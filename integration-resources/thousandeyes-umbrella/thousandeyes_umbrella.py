@@ -19,9 +19,10 @@ or implied.
 import json
 import requests
 import teapi
-import datetime
+from datetime import datetime
 import os
 import webexteamssdk
+import time
 
 def open_config():
     '''
@@ -58,6 +59,7 @@ def post_umbrella_events(domain, api_key):
 
     response = requests.post(url, data=json.dumps(payload), headers=headers)
     response.raise_for_status()
+    print(f"Succesfully blocked {domain}!\n")
 
 def create_thousandeyes_instant_test(username, api_token, test_url, test_name, no_of_reruns, time_between_reruns, aid=None):
     api = teapi.ThousandEyesApi(username, api_token, log_level=50)
@@ -67,11 +69,10 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
     for label in response_json["groups"]:
         if label["name"] == "All agents":
             label_id = label["groupId"]
-
     # Create an Entpoind agent Instant HTTP test against the target URL
     test_payload = {
         "testName": test_name,
-        "url": test_url,
+        "url": f"https://{test_url}",
         "groupId": label_id,
         "httpTimeLimit": 5000,
         "targetResponseTime": 3000,
@@ -86,14 +87,14 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
             and "testName" in response_json["endpointTest"][0]
         ):
             test_id = response_json["endpointTest"][0]["testId"]
-            print(f"Endpoint agent instant test {response_json["endpointTest"][0]["testName"]} with ID {test_id} created.")
+            print(f"Endpoint agent instant test {response_json['endpointTest'][0]['testName']} with ID {test_id} created.\n")
         else:
             print("Failed to create the test:")
             pprint.pprint(response_json)
     # error handling
     except teapi.HTTPResponseError as e:
         if e.status:
-            print(f"HTTP Error {e.status} ({e.request_url})"
+            print(f"HTTP Error {e.status} ({e.request_url})")
         if e.request_body:
             print(f"Request Body:\n {e.request_body}")
         if e.response_body:
@@ -103,10 +104,10 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
     # rerun test for as many times as set in config.json file
     reruns_to_go = no_of_reruns - 1
     while reruns_to_go > 0:
-        print(f"Waiting {time_between_reruns}s before a rerun ({reruns_to_go} reruns to go)")
+        print(f"Waiting {time_between_reruns}s before a rerun ({reruns_to_go} reruns to go)\n")
         time.sleep(time_between_reruns)
         try:
-            print("Running test again.")
+            print("Running test again.\n")
             response_json = api.post(f"endpoint-instant/{test_id}/rerun", test_payload, aid=aid)
         except teapi.HTTPResponseError as e:
             if e.status:
@@ -119,15 +120,20 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
         reruns_to_go -= 1
 
     # briefly sleeping before retrieving test results (configurable, currently set to 2 minutes)
-    print("Waiting 120s to collect test data.")
-    time.sleep(120)
+    print("Waiting 30s to collect test data.\n")
+    time.sleep(30)
 
     # Get all test results
     results = []
     while True:
         # set time window to retrieve test results from
-        collect_time = no_of_reruns * time_between_reruns
-        response_json = api.get(f"endpoint-data/tests/web/http-server/{test_id}", get_options={f"window": "{collect_time}s"}, aid=aid)
+        collect_time = no_of_reruns * time_between_reruns + 300
+        #response_json = api.get(f"endpoint-data/tests/web/http-server/{test_id}", get_options={f"window": "{collect_time}s"}, aid=aid)
+        response_json = api.get(
+            "endpoint-data/tests/web/http-server/%s" % test_id,
+            get_options={"window": "%ss" % collect_time},
+            aid=aid,
+        )
         if (
             "endpointWeb" in response_json
             and "httpServer" in response_json["endpointWeb"]
@@ -140,22 +146,27 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
         # need to do paginated queries.
 
         # briefly sleeping before retrieving test results again (configurable, currently set to 30 seconds)
-        print("No results yet. Waiting 30s to collect test data.")
+        print("No results yet. Waiting 30s to collect test data.\n")
         time.sleep(30)
 
     print("Agent                                 Time        URL Reachable")
-    for result in results:
-        domain_reachable = True 
+    domain_reachable = True
+    None
+    for result in results:  
         if result["errorType"] != "None":
-            domain_reachable = False # result["errorType"]
-        print(f"{result["agentId"]} {result["roundId"]} Yes: HTTP[{result["responseCode"]}]")
+            domain_reachable = False  
+            test_results = f"HTTP[{result['responseCode']}]"
+        else:
+            test_results = result["errorType"]
+        print(f"{result['agentId']} {result['roundId']} Yes: HTTP[{result['responseCode']}]")
+    print("\n")
     
-    #return boolean to check if domain is reachable.
-    return domain_reachable
+    #return boolean to check if domain is reachable and test results.
+    return domain_reachable,test_results
 
-def send_webex_teams_message(domain,test_results,webex_access_token,webex_room_id):
+def send_webex_teams_message(webex_text,webex_access_token,webex_room_id):
     teams = webexteamssdk.WebexTeamsAPI(webex_access_token)
-    webex_text =f"🚨🚨🚨\n\n---\n**Policy NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\n🚨🚨🚨"
+    #webex_text =f"🚨🚨🚨\n\n---\n**Policy NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\n🚨🚨🚨"
     message = teams.messages.create(webex_room_id, markdown=webex_text)
 
 
@@ -175,13 +186,15 @@ if __name__ == "__main__":
     # [STEP 3] Create and retrieve results from instant test with ThousandEyes (NOTE: using endpoint tests now for testing)
     test_url = domain
     test_name = f"Umbrella Policy Enforecement Verifaction for domain: {domain}"
-    no_of_reruns = config_file['no_of_reruns']
-    time_between_reruns = config_file['time_between_reruns']
 
-    domain_reachable = create_thousandeyes_test(config_file['te_username'], config_file['te_api_token'], test_url, test_name, no_of_reruns, time_between_reruns, aid=None)
+    domain_reachable,test_results = create_thousandeyes_instant_test(config_file['te_username'], config_file['te_api_token'], test_url, test_name, config_file['no_of_reruns'], config_file['time_between_reruns'], aid=None)
 
     # [STEP 4] Send Webex Teams notification to notify to admins that policy is NOT enforced (otherwise causing noise)
     if domain_reachable == False:
-        print(f"Policy enforced for domain: {domain}!")
+        print(f"Policy enforced for domain: {domain}!\n")
+        webex_text = f"\n\n---\n**Policy is enforced for domain: {domain}!**\nStatus code: *{test_results}*.\n\Verified by Cisco ThousandEyes!\n\n---\n"
+        send_webex_teams_message(webex_text,config_file['webex_access_token'],config_file['webex_room_id'])
     else:
+        print(f"🚨🚨🚨 Policy NOT enforced for domain: {domain}! 🚨🚨🚨\n")
+        webex_text = f"🚨🚨🚨\n\n---\n**Policy is NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\Verified by Cisco ThousandEyes!\n\n---\n🚨🚨🚨"
         send_webex_teams_message(domain,test_results,config_file['webex_access_token'],config_file['webex_room_id'])

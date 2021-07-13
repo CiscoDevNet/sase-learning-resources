@@ -520,7 +520,10 @@ class ThousandEyesApi:
                     )
 
             if req is not None and req.status >= 200 and req.status <= 201:
-                return json.loads(req.data.decode("utf-8"))
+                try:
+                    return json.loads(req.data.decode("utf-8"))
+                except json.decoder.JSONDecodeError as e:
+                    return req.data
             elif req is not None and req.status == 204:
                 return None
             elif (req is not None) and (req.status == 429):
@@ -777,4 +780,7 @@ class HTTPResponseError(Exception):
         if request_body is not None:
             self.request_body = request_body
         if response_body is not None:
-            self.response_body = json.loads(response_body.decode("utf-8"))
+            try:
+                self.response_body = json.loads(response_body.decode("utf-8"))
+            except json.decoder.JSONDecodeError as e:
+                self.response_body = response_body
