@@ -45,7 +45,7 @@ def post_umbrella_events(domain, api_key):
 
     # Time for AlertTime and EventTime when domains are added to Umbrella
     time = datetime.now().isoformat()
-    
+
     payload = {
         "alertTime": time + "Z",
         "deviceId": "ba6a59f4-e692-4724-ba36-c28132c761de",
@@ -120,8 +120,8 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
         reruns_to_go -= 1
 
     # briefly sleeping before retrieving test results (configurable, currently set to 2 minutes)
-    print("Waiting 30s to collect test data.\n")
-    time.sleep(30)
+    print("Waiting 10s to collect test data.\n")
+    time.sleep(10)
 
     # Get all test results
     results = []
@@ -152,21 +152,20 @@ def create_thousandeyes_instant_test(username, api_token, test_url, test_name, n
     print("Agent                                 Time        URL Reachable")
     domain_reachable = True
     None
-    for result in results:  
+    for result in results:
         if result["errorType"] != "None":
-            domain_reachable = False  
+            domain_reachable = False
             test_results = f"HTTP[{result['responseCode']}]"
         else:
             test_results = result["errorType"]
         print(f"{result['agentId']} {result['roundId']} Yes: HTTP[{result['responseCode']}]")
     print("\n")
-    
+
     #return boolean to check if domain is reachable and test results.
     return domain_reachable,test_results
 
 def send_webex_teams_message(webex_text,webex_access_token,webex_room_id):
     teams = webexteamssdk.WebexTeamsAPI(webex_access_token)
-    #webex_text =f"🚨🚨🚨\n\n---\n**Policy NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\n🚨🚨🚨"
     message = teams.messages.create(webex_room_id, markdown=webex_text)
 
 
@@ -191,10 +190,10 @@ if __name__ == "__main__":
 
     # [STEP 4] Send Webex Teams notification to notify to admins that policy is/isn't enforced
     if domain_reachable == False:
-        print(f"Policy enforced for domain: {domain}!\n")
-        webex_text = f"\n\n---\n**Policy is enforced for domain: {domain}!**\nStatus code: *{test_results}*.\n\Verified by Cisco ThousandEyes!\n\n---\n"
+        print(f"✅✅✅ Policy enforced for domain: {domain}! ✅✅✅\n")
+        webex_text = f"✅✅✅\n\n---\n**Policy is enforced for domain: {domain}!**\nStatus code: *{test_results}*.\nVerified by Cisco ThousandEyes!\n\n---\n✅✅✅"
         send_webex_teams_message(webex_text,config_file['webex_access_token'],config_file['webex_room_id'])
     else:
         print(f"🚨🚨🚨 Policy NOT enforced for domain: {domain}! 🚨🚨🚨\n")
-        webex_text = f"🚨🚨🚨\n\n---\n**Policy is NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\n\Verified by Cisco ThousandEyes!\n\n---\n🚨🚨🚨"
-        send_webex_teams_message(domain,test_results,config_file['webex_access_token'],config_file['webex_room_id'])
+        webex_text = f"🚨🚨🚨\n\n---\n**Policy is NOT enforced for domain: {domain}!**\n\nTest results: *{test_results}*.\nVerified by Cisco ThousandEyes!\n\n---\n🚨🚨🚨"
+        send_webex_teams_message(webex_text,config_file['webex_access_token'],config_file['webex_room_id'])
