@@ -14,18 +14,16 @@ python[3] import_mx_l3.py [-k <api_key>] -n <net_id> -f <file> [-m <mode>]
 The -f parameter is the path to the CSV file with the new MX L3 firewall rules.
 The optional -m parameter is either "simulate" (default) to only print changes,
 or "commit" to also apply those changes to the dashboard network.
-API key can also be exported as an environment variable named
-MERAKI_DASHBOARD_API_KEY
 '''
 
-
+import configparser
 import csv
 from datetime import datetime
 import getopt
 import os
+import requests
 import sys
 
-import meraki
 
 
 # Prints READ_ME help message for user to read
