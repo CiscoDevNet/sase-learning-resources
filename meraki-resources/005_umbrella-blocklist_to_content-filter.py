@@ -65,9 +65,6 @@ def parse_cli_arguments():
                         ".cisco","api_keys","learning_labs_API.cfg"), type=str,
                         help="provide the configuration file containing API keys with default \
                             as ~/.cisco/api_keys/learning_labs_API.cfg")
-    parser.add_argument("-o", "--output", default=os.path.join(os.path.expanduser("~"),
-                        "mx_fw_rules.csv"), type=str,
-                        help="set the output file path with default as the home directory")
     args = parser.parse_args()
     return args
 
@@ -295,7 +292,12 @@ def update_group_policy(api_key, net_id, group_policy, dest_list):
     # extend the patterns list with the destination list
     # patterns = group_policy['contentFiltering']['blockedUrlPatterns']['patterns']
     # patterns.extend(dest_list)
-    group_policy['contentFiltering']['blockedUrlPatterns']['patterns'].extend(dest_list)
+    for dest in dest_list:
+        if dest not in group_policy['contentFiltering']['blockedUrlPatterns']['patterns']:
+            group_policy['contentFiltering']['blockedUrlPatterns']['patterns'].append(dest)
+        else:
+            pass
+
     group_policy['contentFiltering']['blockedUrlPatterns']['settings'] = 'append'
     # finally PUT the modified group policy back where we found it using the same format:
     #response = dashboard.networks.updateNetworkGroupPolicy(
@@ -334,4 +336,5 @@ if __name__ == "__main__":
             gp = get_group_policies(api_keys["meraki"]["key"], network)
             # and finally take the entries from the custom destination list and apply them
             # to group policies with policy['contentFiltering']['blockedUrlPatterns']['patterns']
-            update_group_policy(api_keys["meraki"]["key"], network, gp[0], umbrella_dest_list)
+            for policy in gp:
+                update_group_policy(api_keys["meraki"]["key"], network, policy, umbrella_dest_list)
