@@ -1,79 +1,136 @@
 #!/usr/bin/env python3
+"""GET Meraki MX Layer 3 Firewall Rules with the Meraki API
 
-READ_ME = '''
-=== PREREQUISITES ===
-Run in Python 3 with Meraki dashboard API Python library @
-https://github.com/meraki/dashboard-api-python/
-pip[3] install --upgrade meraki
-=== DESCRIPTION ===
-Imports MX L3 outbound firewall rules from CSV file.
+This script Imports MX L3 outbound firewall rules from CSV file (format below).
 Note that if there is a final "default rule" with logging enabled, then a
 syslog server needs to be configured on the Network-wide > General page.
-=== USAGE ===
-python[3] import_mx_l3.py [-k <api_key>] -n <net_id> -f <file> [-m <mode>]
-The -f parameter is the path to the CSV file with the new MX L3 firewall rules.
-The optional -m parameter is either "simulate" (default) to only print changes,
-or "commit" to also apply those changes to the dashboard network.
-'''
 
+CSV File Format:
+OrgID, NetID, Comment, Policy, Protocol, Source Port, Source CIDR,
+    Destination Port, Destination CIDR, Syslog Enabled ?
+
+This script requires that the noted below imports are installed
+    within the Python 3 environment you execute this script inside.
+
+This file can be imported as a module and contains the following
+functions:
+
+    * import_APIkey - imports API keys from the designated config file
+    * get_orgIDs - gathers Meraki Organization IDs and adds them to a list
+    * add_netIDs - gathers Meraki Network IDs and adds them as values to an org dict
+    * get_gPolicies - GETs and returns the group policies for a specified network
+    * main - the main function of the script
+
+
+__main__ for this script if run independently:
+
+Parameters
+----------
+config_file_loc : filename
+    absolute path to configuration file
+
+Returns
+-------
+mx_fw_rules.csv : csv-formatted file
+    list of L3 firewall rules for all managed organizations
+"""
+# standard imports
+import argparse
 import configparser
 import csv
-from datetime import datetime
-import getopt
 import os
 import sys
+import textwrap
+
+# module imports
 import meraki
 
 
-# Prints READ_ME help message for user to read
-def print_help():
-    lines = READ_ME.split('\n')
-    for line in lines:
-        print('# {0}'.format(line))
 
 
-def main(argv):
-    # Set default values for command line arguments
-    api_key = net_id = arg_file = arg_mode = None
 
-    # Get command line arguments
+def parse_cli_arguments():
+    """Parses CLI arguments
+
+    Parameters
+    ----------
+    none
+
+    Returns
+    -------
+    args : dict
+        a dict of cli_argument:cli_value
+    """
+    # first set up the command line arguments and parse them
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.description = textwrap.dedent("""This script Imports MX L3 outbound firewall rules from \
+        CSV file (format below). Note that if there is a final "default rule" with logging enabled, \
+        then a syslog server needs to be configured on the Network-wide > General page.\
+        \
+        CSV File Format:\
+        OrgID, NetID, PolicyID, Comment, Policy, Protocol, Source Port, Source CIDR, \
+        Destination Port, Destination CIDR, Syslog Enabled ?""")
+    parser.add_argument("-c", "--config", default=os.path.join(os.path.expanduser("~"),
+                        ".cisco","api_keys","learning_labs_API.cfg"), type=str,
+                        help="provide the configuration file containing API keys with default \
+                            as ~/.cisco/api_keys/learning_labs_API.cfg")
+    parser.add_argument("-i", "--inputfile", default=os.path.join(os.path.expanduser("~"),
+                        "mx_fw_rules.csv"), type=str,
+                        help="set the input file path with default as the home directory")
+    parser.add_argument("-m","--mode",default="simulate",type=str,choices=['commit','simulate'],
+                        help='"simulate" (default) to only print changes, or "commit" to also \
+                            apply those changes to the dashboard network')
+    args = parser.parse_args()
+    return args
+
+
+def import_api_key(config_file_path):
+    """Imports API keys from the designated config file
+
+    Parameters
+    ----------
+    config_file_path : str
+        the absolute path of the configuration file
+
+    Returns
+    -------
+    config : configfile object
+        configparser parsed configuration file
+    """
     try:
-        opts, args = getopt.getopt(argv, 'hk:n:f:m:')
-    except getopt.GetoptError:
-        print_help()
-        sys.exit(2)
-    for opt, arg in opts:
-        if opt == '-h':
-            print_help()
-            sys.exit()
-        elif opt == '-k':
-            api_key = arg
-        elif opt == '-n':
-            net_id = arg
-        elif opt == '-f':
-            arg_file = arg
-        elif opt == '-m':
-            arg_mode = arg
+        config = configparser.ConfigParser()
+        config.read(config_file_path)
+    except OSError as err:
+        print(f'The script exited with {err} when trying to read the configuration file')
+        sys.exit(1)
 
-    # Check if all required parameters have been input
-    if (api_key == None and os.getenv('MERAKI_DASHBOARD_API_KEY') == None) or net_id == None or arg_file == None:
-        print_help()
-        sys.exit(2)
+    return config
 
-    # Assign default mode to "simulate" unless "commit" specified
-    if arg_mode != 'commit':
-        arg_mode = 'simulate'
+
+
+if __name__ == '__main__':
+    # process CLI arguments
+    cli_args = parse_cli_arguments()
+    # process api_keys
+    api_key = import_api_key(cli_args.config)["meraki"]["key"]
 
     # Read CSV input file, and skip header row
-    input_file = open(arg_file)
+    input_file = open(cli_args.inputfile)
     csv_reader = csv.reader(input_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
     next(csv_reader, None)
-    print(f'Reading file {arg_file}')
+    print(f'Reading file {cli_args.inputfile}')
 
     # Loop through each firewall rule from CSV file and build PUT data
     fw_rules = []
     for row in csv_reader:
-        rule = dict({'policy': row[0], 'protocol': row[1], 'srcCidr': row[2], 'srcPort': row[3], 'destCidr': row[4], 'destPort': row[5], 'comment': row[6], 'syslogEnabled': (row[7] == True or row[7] == 'True' or row[7] == 'true')})
+        # OrgID, NetID, PolicyID, Comment, Policy, Protocol, Source Port, Source CIDR,
+        # Destination Port, Destination CIDR, Syslog Enabled ?
+        rule = dict({'org': row[0].strip(), 'net': row[1].strip(), 'id': row[2].strip(),
+            'policy': row[4].strip(), 'protocol': row[5].strip(), 'srcCidr': row[7].strip(),
+            'srcPort': row[6].strip(), 'destCidr': row[9].strip(), 'destPort': row[8].strip(),
+            'comment': row[3].strip(),
+            'syslogEnabled':(row[10] or row[10].strip()=='True' or row[10].strip()=='true')})
 
         # Append implied "/32" for IP addresses for just one host
         if '/' not in rule['srcCidr'] and rule['srcCidr'].lower() != 'any':
@@ -81,37 +138,52 @@ def main(argv):
         if '/' not in rule['destCidr'] and rule['destCidr'].lower() != 'any':
             rule['destCidr'] += '/32'
 
-        print(rule)
-
+        # put the rule into a list for further digestion
         fw_rules.append(rule)
     old_rules = list(fw_rules)
-    print(f'Processed all {len(fw_rules)} rules of file {arg_file}')
 
-    # Check if last (default) rule exists, and if so, remove and check for default logging
-    default_rule_exists = False
-    default_logging = False
-    last_rule = {'comment': 'Default rule', 'policy': 'allow', 'protocol': 'Any', 'srcPort': 'Any', 'srcCidr': 'Any', 'destPort': 'Any', 'destCidr': 'Any'}
-    if all(item in fw_rules[-1].items() for item in last_rule.items()):
-        default_rule_exists = True
-        default_logging = (fw_rules.pop()['syslogEnabled'] == True)
+    # create dict out of rules to pull out orgID, netID, and policyID
+    # policyID is guaranteed unique for each network
+    fw_rules_dict = {}
+    for rule in fw_rules:
+        org_id = rule.pop('org')
+        net_id = rule.pop('net')
+        pol_id = rule.pop('id')
+        if org_id not in fw_rules_dict:
+            fw_rules_dict[org_id] = {}
+        if net_id not in fw_rules_dict[org_id]:
+            fw_rules_dict[org_id][net_id] = {}
+        if pol_id not in fw_rules_dict[org_id][net_id]:
+            # after completing necessary checks, add the new rule
+            fw_rules_dict[org_id][net_id][pol_id] = [rule]
+        else:
+            fw_rules_dict[org_id][net_id][pol_id].append(rule)
+
+    print(f'Processed all {len(fw_rules)} rules of file {cli_args.inputfile}')
 
     # Dashboard API library class
-    m = meraki.DashboardAPI(api_key=api_key, log_file_prefix=__file__[:-3], simulate=(arg_mode == 'simulate'))
+    if cli_args.mode == 'commit':
+        dashboard = meraki.DashboardAPI(api_key=api_key, wait_on_rate_limit=True,
+            print_console=False)
+    else:
+        dashboard = meraki.DashboardAPI(api_key=api_key, wait_on_rate_limit=True,
+            print_console=False, simulate=cli_args.mode)
 
     # Update MX L3 firewall rules
-    print(f'Attempting update/simulation of firewall rules to network {net_id}')
-    m.mx_l3_firewall.updateNetworkL3FirewallRules(net_id, rules=fw_rules, syslogDefaultRule=default_logging)
-
-    # Confirm whether changes were successfully made
-    if arg_mode == 'commit':
-        new_rules = m.mx_l3_firewall.getNetworkL3FirewallRules(net_id)
-        if default_rule_exists and new_rules[:-1] == old_rules[:-1]:
-            print('Update successful!')
-        elif not(default_rule_exists) and new_rules[:-1] == old_rules:
-            print('Update successful!')
-        else:
-            print('Uh oh, something went wrong...')
-
-
-if __name__ == '__main__':
-    main(sys.argv[1:])
+    print('Attempting update/simulation of firewall rules.')
+    for org in fw_rules_dict:
+        for net in fw_rules_dict[org]:
+            for grp_pol in fw_rules_dict[org][net]:
+                # Confirm whether changes were successfully made in commit mode by getting status
+                # if there was an issue, an exception will be raised by the meraki module
+                try:
+                    response = dashboard.networks.updateNetworkGroupPolicy(net,grp_pol,
+                    firewallAndTrafficShaping={"l3FirewallRules":fw_rules_dict[org][net][grp_pol]})
+                except Exception as err:
+                    print(f'{err} occurred while trying to update \
+rule {fw_rules_dict[org][net][grp_pol]}')
+                    sys.exit(1)
+    if cli_args.mode == 'simulate':
+        print('Simulation successful.')
+    else:
+        print('Update successful.')

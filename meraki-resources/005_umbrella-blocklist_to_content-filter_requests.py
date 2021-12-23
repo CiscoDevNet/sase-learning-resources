@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """GET Umbrella Custom  Block List and add to the Meraki MX Content Filter
 
-This script GETs the Umbrella Custom Block list and then Meraki API to GET the
-Group Policy from each Network in your Organization. After that, it adds each entry in the
-Umbrella Block List to the Content Filter of each Meraki Group Policy.
+This script GETs the specified Umbrella Custom Destination list.
+After that, it adds each entry in the Umbrella Block List to the
+Content Filter of each Meraki Group Policy.
 
 This script requires that the noted below imports are installed
     within the Python 3 environment you execute this script inside.
@@ -212,16 +212,27 @@ def get_org_ids(api_key):
 
     Returns
     -------
-    org_ids : list
+    org_IDs : list
         python list object containing organization UUIDs
     """
-    dashboard = meraki.DashboardAPI(api_key, print_console=False)
-    organizations = dashboard.organizations.getOrganizations()
-    org_list = []
+    url = "https://api.meraki.com/api/v1/organizations"
+    payload = None
+    header = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Cisco-Meraki-API-Key": api_key
+    }
+    response = requests.request('GET', url, headers = header, data = payload)
+    if response.status_code != 200:
+        print(f'the request was unsuccessful because of an error {response.status_code}, \
+            specifically: {response.text}')
+        sys.exit(1)
 
-    for org in organizations:
+    org_list = []
+    for org in json.loads(response.text):
         org_list.append(org['id'])
     org_ids = dict.fromkeys(org_list)
+
     return org_ids
 
 
@@ -239,16 +250,26 @@ def add_net_ids(api_key, org_dict):
     -------
     none
     """
-    for org in org_dict:
-        dashboard = meraki.DashboardAPI(api_key, print_console=False)
-        networks_in_organization = dashboard.organizations.getOrganizationNetworks(org)
+    for org in org_dict.keys():
+        url = f'https://api.meraki.com/api/v1/organizations/{org}/networks'
+        payload = None
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Cisco-Meraki-API-Key": api_key
+        }
+        response = requests.request('GET', url, headers=headers, data = payload)
+        if response.status_code != 200:
+            print(f'the request was unsuccessful because of an error {response.status_code}, \
+                specifically: {response.text}')
+            sys.exit(1)
         net_list = []
-        for net in networks_in_organization:
+        for net in json.loads(response.text):
             net_list.append(net['id'])
         org_dict[org] = net_list
 
 
-def get_group_policies(api_key, net_id):
+def get_group_policies(api_key, network_id):
     """GETs and returns the group policies for a specified network
 
     Parameters
@@ -263,10 +284,23 @@ def get_group_policies(api_key, net_id):
     group_policy : json
         list of json group policy objects in the network
     """
-    dashboard = meraki.DashboardAPI(api_key, print_console=False)
-    group_policy = dashboard.networks.getNetworkGroupPolicies(net_id)
+    # set up body and headers for the appropriate API method to GET group policies
+    url = f"https://api.meraki.com/api/v1/networks/{network_id}/groupPolicies"
+    payload = None
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Cisco-Meraki-API-Key": api_key
+    }
+    response = requests.request('GET', url, headers=headers, data = payload)
+    # perform request
+    if response.status_code != 200:
+        print(f'the request was unsuccessful because of an error {response.status_code}, \
+specifically: {response.text}')
+        sys.exit(1)
 
     # return group policies within the network
+    group_policy = json.loads(response.text)
     return group_policy
 
 
@@ -298,11 +332,22 @@ def update_group_policy(api_key, net_id, group_policy, dest_list):
             pass
 
     group_policy['contentFiltering']['blockedUrlPatterns']['settings'] = 'append'
-    # finally PUT the modified group policy back where we found it
-    dashboard = meraki.DashboardAPI(api_key)
-    response = dashboard.networks.updateNetworkGroupPolicy(net_id, group_policy['groupPolicyId'],
-        contentFiltering=group_policy['contentFiltering']
-    )
+    # grab the group policy id
+    group_policy_id = group_policy.pop('groupPolicyId')
+    # set up body and headers for the appropriate API method to PUT group policies
+    url = f"https://api.meraki.com/api/v1/networks/{net_id}/groupPolicies/{group_policy_id}"
+    payload = f'{json.dumps(group_policy)}'
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Cisco-Meraki-API-Key": api_key
+    }
+    response = requests.request('PUT', url, headers=headers, data = payload)
+    # perform request
+    if response.status_code != 200:
+        print(f'the request was unsuccessful because of an error {response.status_code}, \
+specifically: {response.text}')
+        sys.exit(1)
 
 
 if __name__ == "__main__":
