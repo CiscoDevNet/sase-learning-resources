@@ -46,9 +46,6 @@ import textwrap
 import meraki
 
 
-
-
-
 def parse_cli_arguments():
     """Parses CLI arguments
 
@@ -106,7 +103,6 @@ def import_api_key(config_file_path):
         sys.exit(1)
 
     return config
-
 
 
 if __name__ == '__main__':

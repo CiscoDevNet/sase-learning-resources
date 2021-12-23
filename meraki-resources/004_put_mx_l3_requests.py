@@ -38,15 +38,13 @@ mx_fw_rules.csv : csv-formatted file
 import argparse
 import configparser
 import csv
+import json
 import os
 import sys
 import textwrap
 
 # module imports
-import meraki
-
-
-
+import requests
 
 
 def parse_cli_arguments():
@@ -78,9 +76,6 @@ def parse_cli_arguments():
     parser.add_argument("-i", "--inputfile", default=os.path.join(os.path.expanduser("~"),
                         "mx_fw_rules.csv"), type=str,
                         help="set the input file path with default as the home directory")
-    parser.add_argument("-m","--mode",default="simulate",type=str,choices=['commit','simulate'],
-                        help='"simulate" (default) to only print changes, or "commit" to also \
-                            apply those changes to the dashboard network')
     args = parser.parse_args()
     return args
 
@@ -106,7 +101,6 @@ def import_api_key(config_file_path):
         sys.exit(1)
 
     return config
-
 
 
 if __name__ == '__main__':
@@ -161,29 +155,26 @@ if __name__ == '__main__':
 
     print(f'Processed all {len(fw_rules)} rules of file {cli_args.inputfile}')
 
-    # Dashboard API library class
-    if cli_args.mode == 'commit':
-        dashboard = meraki.DashboardAPI(api_key=api_key, wait_on_rate_limit=True,
-            print_console=False)
-    else:
-        dashboard = meraki.DashboardAPI(api_key=api_key, wait_on_rate_limit=True,
-            print_console=False, simulate=cli_args.mode)
 
     # Update MX L3 firewall rules
-    print('Attempting update/simulation of firewall rules.')
+    print('Attempting update of firewall rules.')
     for org in fw_rules_dict:
         for net in fw_rules_dict[org]:
             for grp_pol in fw_rules_dict[org][net]:
                 # Confirm whether changes were successfully made in commit mode by getting status
                 # if there was an issue, an exception will be raised by the meraki module
-                try:
-                    response = dashboard.networks.updateNetworkGroupPolicy(net,grp_pol,
-                    firewallAndTrafficShaping={"l3FirewallRules":fw_rules_dict[org][net][grp_pol]})
-                except Exception as err:
-                    print(f'{err} occurred while trying to update \
-rule {fw_rules_dict[org][net][grp_pol]}')
+                # set up body and headers for the appropriate API method to PUT group policies
+                url = f"https://api.meraki.com/api/v1/networks/{net}/groupPolicies/{grp_pol}"
+                payload = f'{{"firewallAndTrafficShaping": {{"l3FirewallRules": {json.dumps(fw_rules_dict[org][net][grp_pol])}}}}}'
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "X-Cisco-Meraki-API-Key": api_key
+                }
+                response = requests.request('PUT', url, headers=headers, data = payload)
+                # perform request
+                if response.status_code != 200:
+                    print(f'the request was unsuccessful because of an error {response.status_code}, specifically: {response.text}')
                     sys.exit(1)
-    if cli_args.mode == 'simulate':
-        print('Simulation successful.')
-    else:
-        print('Update successful.')
+    # if we haven't errored out
+    print('Update successful.')
